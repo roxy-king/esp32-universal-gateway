@@ -6,7 +6,9 @@
 
 ## 不接 ESP，先试用
 
-安装 Python 3.11 或以上版本，Windows 双击 `start-demo.cmd`。第一次需联网安装依赖，然后浏览器打开 http://127.0.0.1:8880。
+Windows 双击 `start-demo.cmd`：自动检测 Python 3.11+，缺少时使用 Windows Package Manager（winget）安装当前用户版 Python 3.13，再创建独立环境、检查和安装依赖，最后启动演示。首次安装需要联网；依赖已齐全时不会重复下载安装。浏览器打开 http://127.0.0.1:8880。
+
+若系统没有 winget，脚本会提示先安装 Microsoft Store 中的“应用安装程序”，或自行安装 Python 后重试。已有但不可用的 .venv 会改名保留，不直接删除。Python 安装使用 Windows Package Manager；安装选项参考 [Python 官方 Windows 文档](https://docs.python.org/3.13/using/windows.html)。
 
 演示用户名 `demo`，密码 `demo1234`。该模式只监听本机，连接的是模拟网关和模拟单片机；临时数据在退出后删除，不能用于公网部署。按 Ctrl+C 停止。
 

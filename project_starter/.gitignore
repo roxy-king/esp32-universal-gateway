@@ -1,5 +1,6 @@
 private/
 .venv/
+.venv-backup-*/
 __pycache__/
 *.pyc
 firmware/output/

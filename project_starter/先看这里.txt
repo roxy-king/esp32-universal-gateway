@@ -1,7 +1,8 @@
 Link 通用项目开发模板 1.0
 
 现在不需要连接 ESP 或单片机。
-安装 Python 3.11 或更高版本，双击 start-demo.cmd。
+双击 start-demo.cmd，自动检测 Python、通过 winget 安装缺失的 Python，并安装依赖。
+首次运行需要联网。缺少 winget 时按提示安装 Windows“应用安装程序”后重试。
 浏览器打开 http://127.0.0.1:8880
 演示账号 demo，密码 demo1234。演示为模拟硬件，退出后数据删除。
 
