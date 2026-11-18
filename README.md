@@ -42,7 +42,7 @@ bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/e
    也可先 `py -m pip install pyserial`，再 `py serial_monitor.py COM5`。
 6. 手机连接输出的热点。密码为每台设备首次生成的随机密码，不是原来的WasherSetup密码。访问 `http://192.168.4.1`。
 
-普通用户用现成BIN即可，不需要安装Arduino工具链。切回洗衣机时，使用保留的原 `washer_final` / `washer_esp32_compat` ESP固件与原配置流程。
+普通用户用现成BIN即可，不需要安装Arduino工具链。
 
 ## 第二步：先准备独立服务器配置
 
