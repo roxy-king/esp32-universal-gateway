@@ -1,10 +1,9 @@
 # Link / ESP32 通用通信网关 1.3
-
-独立工程，不覆盖洗衣机固件与网站。现成固件仅针对你这块 **ESP32-S3 N16R8（16MB Flash）**。
+现成固件仅针对 **ESP32-S3 N16R8（16MB Flash）**。
 
 ## 一键部署与自动配对
 
-仓库已公开，无需GitHub登录。以 **root** 登录Debian/Ubuntu服务器，复制整行：
+以 **root** 登录Debian/Ubuntu服务器，复制整行：
 
 ```bash
 bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.3.0/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
