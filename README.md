@@ -6,7 +6,7 @@
 以 **root** 登录Debian/Ubuntu服务器，复制整行：
 
 ```bash
-bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.5.1/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
+bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.5.2/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
 ```
 
 若提示curl不存在，先运行 `apt-get update && apt-get install -y curl ca-certificates`。
@@ -168,3 +168,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -InstallDependencies
 忘记密码可通过 USB 调试串口 115200 查看。恢复出厂配置仍保留热点密码。此操作仅允许设备热点内携带有效 nonce 的请求，密码不通过配置导出或状态 API 返回。
 
 本版不修改 RGB 灯行为；当前固件未把灯色定义为在线或故障状态。不同板卡的电源灯和 RGB 引脚设计可能不同。
+
+## v1.5.2：RGB 默认关闭（固件 1.2.2）
+
+启动时对当前 esp32s3 板卡定义的 RGB_BUILTIN（GPIO48）写入黑色，正常运行不再点亮 RGB；小红色电源指示灯不受此设置影响。保留 v1.5.1 的热点密码修改功能。其他板型若将 RGB 接到 GPIO38，需要按实际板卡定义编译，不应直接驱动未核实的引脚。
