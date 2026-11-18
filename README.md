@@ -1,4 +1,4 @@
-# Link / ESP32 通用通信网关 1.3
+# Link / ESP32 通用通信网关 1.6
 现成固件仅针对 **ESP32-S3 N16R8（16MB Flash）**。
 
 ## 一键部署与自动配对
@@ -6,11 +6,11 @@
 以 **root** 登录Debian/Ubuntu服务器，复制整行：
 
 ```bash
-bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.5.3/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
+bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.6.0/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
 ```
 
 若提示curl不存在，先运行 `apt-get update && apt-get install -y curl ca-certificates`。
-向导会下载固定v1.4.0源码，安装服务、配置HTTPS并生成ESP配对文件。请先完成独立域名DNS解析，并开放80/443端口。
+向导会下载固定v1.6.0源码，安装服务、配置HTTPS并生成ESP配对文件。请先完成独立域名DNS解析，并开放80/443端口。
 完成后把 `/etc/esp-gateway/pairing.json` 下载到电脑的 `private/pairing.json`，连接ESP热点并运行 `connect.cmd`；服务器不能替你连接本地设备热点。
 
 也可以从仓库的 **Releases** 下载完整包，使用Windows向导：
@@ -30,7 +30,7 @@ bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/e
 
 ## 先看这一点
 
-通用指“传输不再绑定洗衣逻辑”，不是“不写单片机程序就能控制任意设备”。新项目必须定义可执行命令与状态反馈。旧洗衣机网站的协议不同，本固件不能直接连接原网站。当前服务器未被修改，也未给你的ESP32自动烧录。
+通用指“传输不再绑定洗衣逻辑”，不是“不写单片机程序就能控制任意设备”。新项目必须定义可执行命令与状态反馈。旧洗衣机网站的协议不同，本固件不能直接连接原网站。本仓库的安装与烧录脚本仅在用户运行后更改相应设备。
 
 ## 第一步：烧录ESP32
 
@@ -53,7 +53,7 @@ py -m venv .venv
 .\.venv\Scripts\python -m pip install -r server\requirements.txt
 .\.venv\Scripts\python server\configure.py
 ```
-按提示输入网页完整地址，例如 `http://127.0.0.1:8766`（仅电脑浏览器试验），或者 `https://gateway.你的域名`（公网）。设备ID填ESP面板显示的值。程序生成：
+按提示输入网页完整地址，例如 `http://127.0.0.1:8766`（仅电脑浏览器试验），或者 `https://gateway.你的域名`（公网）。设备ID可自行命名；ESP 使用独立设备令牌自动配对，无需两边 ID 一致。程序生成：
 
 - `server/private/server.json`：账号哈希和设备令牌哈希。
 - `server/private/device-token.txt`：填入ESP面板的设备令牌，仅本地保存。
@@ -70,7 +70,7 @@ py -m venv .venv
 
 ## 第三步：填写ESP面板
 
-1. 项目名自定；设备ID必须与server.json注册的一致。
+1. 项目名自定；设备ID可保留默认值。服务端 v1.6.0 起按独立令牌识别设备，不要求与服务器登记 ID 一致。
 2. 填2.4GHz Wi-Fi名称和密码。密码留空代表保留；换成开放Wi-Fi需勾选清除密码。
 3. 主机只填域名/IP，不含 `https://`；公网端口443、路径 `/gateway/ws`，打开TLS。
 4. 设备令牌填生成的device-token.txt内容。以后留空保留。不要填网页登录密码。
@@ -185,3 +185,15 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -InstallDependencies
 - 本版本固件仍为 1.2.2，无需给现有 ESP 再次烧录。
 
 验证：Windows PowerShell 5.1 脚本语法与解析测试通过（包括分段串口数据、8位密码及密码空格）；COM5 实机成功读取当前热点信息。输出密码不要截图公开。
+
+## v1.6.0：连接状态与设备管理
+
+- 控制台分开显示网页到云端、ESP 到云端、单片机到 ESP。串口长时间没有数据不直接判定单片机离线。
+- 配置摘要显示固件、Wi-Fi 信号、串口波特率/格式/引脚、行尾、服务器地址及最近上报时间。完整字段需要固件 1.3.0；旧版仍能连接，缺失项明确显示未上报。密码和令牌不进入摘要。
+- 页面默认开启离线提醒，可自行关闭，偏好保存在当前浏览器。只在本次页面观察到在线转离线时提醒，恢复后清除；网页无法访问服务器时显示状态未知，不伪报 ESP 离线。关闭网页后不推送。后台标签页检测可能受浏览器节流影响。
+- 展开“设备名称与 ID”即可修改名称与控制台 ID，无需重刷或重配 ESP。它是控制台标识；服务器内部注册键和 ESP 上报 ID 保持不变，历史记录及现有会话继续可用。
+- 服务端按独立令牌唯一匹配设备。ESP 的请求头 ID 与自身状态上报仍须一致，但不必与服务器注册键一致。令牌错误或同一个令牌被登记给多台设备时拒绝连接，同一令牌仍只允许一个在线会话。
+- 设备名称与控制台 ID 保存于账号文件同目录的 `devices.json`（标准部署为 `/var/lib/esp-gateway/devices.json`）；更新服务保留此文件。它不保存令牌。设备设置接口仍要求登录、正确来源和 CSRF。
+- 页面每秒读取一次状态；ESP 每5秒上报心跳，服务端超过20秒无上报视为状态过期。二者不是同一个刷新周期。
+
+验证：29项服务端/部署测试通过；真实浏览器验证设置保存、发送与模拟回复、掉线/恢复、关闭提醒、云端不可达与三种屏宽。固件 1.3.0 在 ESP32-S3 N16R8 编译通过。现有设备升级请仅写应用分区 0x10000；全量 flash.cmd 会重写整片镜像，升级前务必备份配置。

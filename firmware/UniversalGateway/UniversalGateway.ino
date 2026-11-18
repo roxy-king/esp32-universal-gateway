@@ -111,7 +111,9 @@ void startAP(){
  if(ap){nonce=randomHex();logEvent("配置热点已开启 "+apName);Serial.println("AP password: "+apPassword);}
 }
 void status(JsonDocument& d){
- d["firmware"]="UniversalGateway 1.2.2";d["device_id"]=cfg["device_id"];d["boot_id"]=bootId;
+ d["firmware"]="UniversalGateway 1.3.0";d["device_id"]=cfg["device_id"];d["boot_id"]=bootId;
+ // Public connection settings only. Never send passwords, tokens or CA contents.
+ for(const char* key:{"name","baud","rx","tx","format","ending","host","port","path","tls"})d[key]=cfg[key];
  d["wifi"]=WiFi.status()==WL_CONNECTED;d["ip"]=WiFi.localIP().toString();d["rssi"]=WiFi.status()==WL_CONNECTED?WiFi.RSSI():0;
  d["ssid"]=cfg["ssid"];d["cloud_configured"]=String(cfg["host"]|"").length()>0;
  d["wifi_message"]=WiFi.status()==WL_CONNECTED?"已连接 Wi-Fi":!String(cfg["ssid"]|"").length()?"请选择 Wi-Fi":WiFi.status()==WL_NO_SSID_AVAIL?"找不到热点，请确认已开启 2.4 GHz":WiFi.status()==WL_CONNECT_FAILED?"连接失败，请检查密码和路由器设置":wifiStartAt&&uint32_t(millis()-wifiStartAt)<30000?"正在连接，请稍候…":"尚未连接，请检查密码、信号和路由器 DHCP；可重新连接";

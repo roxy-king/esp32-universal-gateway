@@ -24,6 +24,10 @@ class GatewayServer:
     def __init__(self,config,account_file=None):
         self.config=dict(config); self.sessions={};self.failures={};self.devices={};self.events=deque(maxlen=200);self.seq=0
         self.account_file=Path(account_file) if account_file else None
+        self.device_file=self.account_file.with_name('devices.json') if self.account_file else None
+        self.device_settings={}
+        if self.device_file and self.device_file.exists():
+            self.device_settings=json.loads(self.device_file.read_text(encoding='utf-8'))
         self.account_lock=asyncio.Lock();self.account_failures=[];self.revision=0
         if self.account_file and self.account_file.exists():
             a=json.loads(self.account_file.read_text(encoding='utf-8'))
@@ -91,8 +95,29 @@ class GatewayServer:
         session=self.user(r);now=time.time();devices=[]
         for ident in self.config['devices']:
             d=self.devices.get(ident,{});s=d.get('status',{});connected=bool(d.get('ws') is not None and not d['ws'].closed and now-d.get('seen',0)<20)
-            devices.append(dict(id=ident,connected=connected,status=s,last_seen=d.get('seen')))
+            age=max(0,now-d['seen']) if d.get('seen') else None
+            settings=self.device_settings.get(ident,{})
+            devices.append(dict(id=ident,display_id=settings.get('display_id',ident),name=settings.get('name',''),reported_id=d.get('reported_id'),connected=connected,status=s,last_seen=d.get('seen'),status_age_s=age,connection='online' if connected else 'waiting' if d.get('ws') is not None and not d['ws'].closed and not d.get('seen') else 'stale' if d.get('ws') is not None and not d['ws'].closed else 'offline'))
         return web.json_response({'csrf':session['csrf'],'username':self.config['username'],'devices':devices,'events':list(self.events)})
+    async def device_settings_update(self,r):
+        self.mutation(r);ident=r.match_info['device']
+        if ident not in self.config['devices']:raise web.HTTPNotFound(text='设备不存在')
+        if not self.device_file:raise web.HTTPServiceUnavailable(text='未配置设备设置保存路径')
+        data=await r.json();display=data.get('display_id','');name=data.get('name','')
+        if not isinstance(display,str) or not ID.fullmatch(display):raise web.HTTPBadRequest(text='设备 ID 须为1至48位字母、数字、下划线或短横线')
+        if not isinstance(name,str) or len(name)>48 or any(ord(c)<32 for c in name):raise web.HTTPBadRequest(text='设备名称最多48字，不含控制字符')
+        for other in self.config['devices']:
+            if other!=ident and display in (other,self.device_settings.get(other,{}).get('display_id',other)):raise web.HTTPConflict(text='设备 ID 已被使用')
+        updated=dict(self.device_settings);updated[ident]={'display_id':display,'name':name.strip()};temp=None
+        try:
+            with tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',dir=self.device_file.parent,delete=False) as f:
+                temp=Path(f.name);os.chmod(temp,0o600);json.dump(updated,f,ensure_ascii=False);f.flush();os.fsync(f.fileno())
+            os.replace(temp,self.device_file)
+        except OSError:
+            if temp and temp.exists():temp.unlink()
+            raise web.HTTPServiceUnavailable(text='保存失败，原设置保持不变')
+        self.device_settings=updated
+        return web.json_response({'ok':True,'message':'设备设置已保存，连接保持不变；ESP 无需修改 ID'})
     async def command(self,r):
         self.mutation(r);ident=r.match_info['device'];device=self.devices.get(ident)
         if not device or device['ws'].closed or time.time()-device.get('seen',0)>20:raise web.HTTPConflict(text='网关离线或状态过期，未发送')
@@ -114,14 +139,17 @@ class GatewayServer:
             return web.json_response({'ok':False,'result':'结果未知，可能已发送；未自动重发','id':ident_cmd},status=504)
         finally:self.pending.pop(ident,None)
     async def websocket(self,r):
-        ident=r.headers.get('X-Device-Id','');expected=self.config['devices'].get(ident)
+        reported=r.headers.get('X-Device-Id','')
         token=r.headers.get('Authorization','')
-        if not expected or not token.startswith('Bearer ') or not hmac.compare_digest(digest(token[7:]),expected['token_sha256']):raise web.HTTPUnauthorized()
+        if not ID.fullmatch(reported) or not token.startswith('Bearer '):raise web.HTTPUnauthorized()
+        matches=[key for key,value in self.config['devices'].items() if hmac.compare_digest(digest(token[7:]),value['token_sha256'])]
+        if len(matches)!=1:raise web.HTTPUnauthorized(text='设备令牌无效或重复，请为每台设备配置独立令牌')
+        ident=matches[0]
         if r.headers.get('X-Gateway-Probe')=='1':return web.Response(status=204)
         previous=self.devices.get(ident)
         if previous and not previous['ws'].closed:raise web.HTTPConflict(text='Device already connected')
         ws=web.WebSocketResponse(heartbeat=15,max_msg_size=4096)
-        device={'ws':ws,'status':{},'seen':0};self.devices[ident]=device
+        device={'ws':ws,'status':{},'seen':0,'reported_id':reported};self.devices[ident]=device
         try:await ws.prepare(r)
         except Exception:
             if self.devices.get(ident) is device:self.devices.pop(ident,None)
@@ -139,7 +167,7 @@ class GatewayServer:
                 if not isinstance(d,dict) or d.get('v')!=1:break
                 kind=d.get('type')
                 if kind in ('hello','status'):
-                    if d.get('device_id')!=ident or not ID.fullmatch(str(d.get('boot_id',''))) or d.get('mode') not in ('line','hex') or not isinstance(d.get('remote_write'),bool):break
+                    if d.get('device_id')!=reported or not ID.fullmatch(str(d.get('boot_id',''))) or d.get('mode') not in ('line','hex') or not isinstance(d.get('remote_write'),bool):break
                     device['status']=d;device['seen']=time.time()
                 elif kind=='rx':
                     data=d.get('data')
@@ -169,7 +197,7 @@ async def errors(r,handler):
 
 def create_app(config,account_file=None):
     s=GatewayServer(config,account_file);app=web.Application(client_max_size=4096,middlewares=[errors]);app['gateway']=s
-    app.add_routes([web.get('/',s.index),web.post('/api/login',s.login),web.post('/api/logout',s.logout),web.post('/api/account',s.account),web.get('/api/state',s.state),web.post('/api/devices/{device}/tx',s.command),web.get('/gateway/ws',s.websocket)])
+    app.add_routes([web.get('/',s.index),web.post('/api/login',s.login),web.post('/api/logout',s.logout),web.post('/api/account',s.account),web.get('/api/state',s.state),web.post('/api/devices/{device}/settings',s.device_settings_update),web.post('/api/devices/{device}/tx',s.command),web.get('/gateway/ws',s.websocket)])
     app.on_cleanup.append(s.cleanup);return app
 
 if __name__=='__main__':

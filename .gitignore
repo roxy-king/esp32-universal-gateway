@@ -6,6 +6,7 @@ private/
 *token*.txt
 PrivateConfig.h
 account.json
+devices.json
 server.json
 pairing*.json
 build/

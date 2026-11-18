@@ -11,7 +11,7 @@ if __name__=='__main__':
     name=input('登录用户名：').strip();password=getpass.getpass('登录密码（至少8位）：')
     if not name or len(password)<8 or len(password)>256:raise SystemExit('用户名或密码长度不正确')
     if password!=getpass.getpass('再次输入密码：'):raise SystemExit('密码不一致')
-    device=input('网关面板中的设备 ID：').strip()
+    device=input('控制台登记 ID（自定，ESP 无需相同）：').strip()
     if not ID.fullmatch(device):raise SystemExit('设备 ID 格式错误')
     salt=secrets.token_hex(16);token=secrets.token_urlsafe(32)
     config=dict(origin=origin,username=name,password_salt=salt,password_hash=password_hash(password,salt),devices={device:{'token_sha256':digest(token)}})

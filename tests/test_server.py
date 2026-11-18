@@ -13,6 +13,52 @@ class ProtocolTests(unittest.TestCase):
             with self.subTest(data=d),self.assertRaises(ValueError):validate_command(d,m)
 
 class ServerTests(AioHTTPTestCase):
+    async def test_token_pairs_different_id_and_routes_command(self):
+        headers=await self.login()
+        ws=await self.client.ws_connect('/gateway/ws',headers={'X-Device-Id':'esp-auto-123','Authorization':'Bearer test-device-token'})
+        await ws.send_json(dict(v=1,type='hello',device_id='esp-auto-123',boot_id='boot-test',mode='line',remote_write=True,baud=9600,rx=18,tx=17))
+        await asyncio.sleep(.02)
+        state=await (await self.client.get('/api/state')).json();d=state['devices'][0]
+        self.assertTrue(d['connected']);self.assertEqual(d['id'],'seedling');self.assertEqual(d['reported_id'],'esp-auto-123');self.assertEqual(d['status']['baud'],9600)
+        task=asyncio.create_task(self.client.post('/api/devices/seedling/tx',json={'encoding':'text','data':'STATUS'},headers=headers))
+        tx=await ws.receive_json();await ws.send_json(dict(v=1,type='ack',id=tx['id'],ok=True,result='uart_queued_not_executed'))
+        self.assertEqual((await task).status,200);await ws.close()
+    async def test_token_invalid_ambiguous_and_spoofed_id(self):
+        from aiohttp import WSServerHandshakeError
+        with self.assertRaises(WSServerHandshakeError):
+            await self.client.ws_connect('/gateway/ws',headers={'X-Device-Id':'seedling','Authorization':'Bearer wrong'})
+        self.app['gateway'].config['devices']['duplicate']={'token_sha256':digest('test-device-token')}
+        r=await self.client.get('/gateway/ws',headers={'X-Gateway-Probe':'1','X-Device-Id':'seedling','Authorization':'Bearer test-device-token'})
+        self.assertEqual(r.status,401)
+        del self.app['gateway'].config['devices']['duplicate']
+        ws=await self.connect();await ws.send_json(dict(v=1,type='status',device_id='other',boot_id='boot-test',mode='line',remote_write=True))
+        self.assertIn((await ws.receive()).type.value,[8,257]);await ws.close()
+    async def test_device_settings_persist_without_disconnect(self):
+        from server import GatewayServer
+        headers=await self.login();ws=await self.connect()
+        r=await self.client.post('/api/devices/seedling/settings',json={'name':'育苗设备','display_id':'nursery'},headers=headers)
+        self.assertEqual(r.status,200);self.assertFalse(ws.closed)
+        restored=GatewayServer(self.original,self.account_file)
+        self.assertEqual(restored.device_settings['seedling']['display_id'],'nursery')
+        state=await (await self.client.get('/api/state')).json();self.assertEqual(state['devices'][0]['name'],'育苗设备')
+        self.assertNotIn('test-device-token',restored.device_file.read_text(encoding='utf-8'));await ws.close()
+    async def test_device_settings_validation_and_storage_failure(self):
+        headers=await self.login();url='/api/devices/seedling/settings';good={'name':'设备','display_id':'new-id'}
+        self.assertEqual((await self.client.post(url,json=good)).status,403)
+        self.assertEqual((await self.client.post(url,json={'name':'ok','display_id':'bad id'},headers=headers)).status,400)
+        self.app['gateway'].config['devices']['other']={'token_sha256':digest('another-token')}
+        self.assertEqual((await self.client.post(url,json={'name':'ok','display_id':'other'},headers=headers)).status,409)
+        self.app['gateway'].device_file=Path(self.tmp.name)/'missing'/'devices.json'
+        self.assertEqual((await self.client.post(url,json=good,headers=headers)).status,503)
+        self.assertEqual(self.app['gateway'].device_settings,{})
+    async def test_connection_states_and_old_firmware(self):
+        await self.login();ws=await self.client.ws_connect('/gateway/ws',headers={'X-Device-Id':'seedling','Authorization':'Bearer test-device-token'})
+        d=(await (await self.client.get('/api/state')).json())['devices'][0];self.assertEqual(d['connection'],'waiting')
+        await ws.send_json(dict(v=1,type='hello',device_id='seedling',boot_id='boot-test',mode='line',remote_write=False));await asyncio.sleep(.02)
+        self.app['gateway'].devices['seedling']['seen']-=30
+        d=(await (await self.client.get('/api/state')).json())['devices'][0];self.assertEqual(d['connection'],'stale');self.assertFalse(d['connected'])
+        await ws.close();await asyncio.sleep(.02)
+        d=(await (await self.client.get('/api/state')).json())['devices'][0];self.assertEqual(d['connection'],'offline')
     async def get_application(self):
         self.origin='http://localhost';salt='11'*16
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.account_file=Path(self.tmp.name)/'account.json'

@@ -2,7 +2,7 @@
 # Public bootstrap; the source version is fixed for reproducible installation.
 set -euo pipefail
 REPOSITORY='roxy-king/esp32-universal-gateway'
-VERSION='v1.5.3'
+VERSION='v1.6.0'
 if [[ ${1:-} == --check ]]; then
     printf 'Repository: %s\nVersion: %s\n' "$REPOSITORY" "$VERSION"
     exit 0
