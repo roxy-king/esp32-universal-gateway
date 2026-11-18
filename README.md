@@ -1,10 +1,9 @@
 # Link / ESP32 通用通信网关 1.3
-
-独立工程，不覆盖洗衣机固件与网站。现成固件仅针对你这块 **ESP32-S3 N16R8（16MB Flash）**。
+现成固件仅针对 **ESP32-S3 N16R8（16MB Flash）**。
 
 ## 一键部署与自动配对
 
-仓库已公开，无需GitHub登录。以 **root** 登录Debian/Ubuntu服务器，复制整行：
+以 **root** 登录Debian/Ubuntu服务器，复制整行：
 
 ```bash
 bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.4.0/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
@@ -43,7 +42,7 @@ bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/e
    也可先 `py -m pip install pyserial`，再 `py serial_monitor.py COM5`。
 6. 手机连接输出的热点。密码为每台设备首次生成的随机密码，不是原来的WasherSetup密码。访问 `http://192.168.4.1`。
 
-普通用户用现成BIN即可，不需要安装Arduino工具链。切回洗衣机时，使用保留的原 `washer_final` / `washer_esp32_compat` ESP固件与原配置流程。
+普通用户用现成BIN即可，不需要安装Arduino工具链。
 
 ## 第二步：先准备独立服务器配置
 
