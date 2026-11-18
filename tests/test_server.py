@@ -18,6 +18,12 @@ class ServerTests(AioHTTPTestCase):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.account_file=Path(self.tmp.name)/'account.json'
         self.original=dict(origin=self.origin,username='student',password_salt=salt,password_hash=password_hash('test-password-123',salt),devices={'seedling':{'token_sha256':digest('test-device-token')}})
         return create_app(self.original,self.account_file)
+    async def test_probe_checks_auth_without_device_registration(self):
+        r=await self.client.get('/gateway/ws',headers={'X-Gateway-Probe':'1'})
+        self.assertEqual(r.status,401)
+        r=await self.client.get('/gateway/ws',headers={'X-Gateway-Probe':'1','X-Device-Id':'seedling','Authorization':'Bearer test-device-token'})
+        self.assertEqual(r.status,204)
+        self.assertEqual(self.app['gateway'].devices,{})
     async def test_account_eight_chars_persist_and_revoke(self):
         from server import GatewayServer
         headers=await self.login()
@@ -77,6 +83,16 @@ class ServerTests(AioHTTPTestCase):
         await ws.receive_json();r=await task;self.assertEqual(r.status,504);await ws.close()
     async def test_malformed_ws_is_closed(self):
         await self.login();ws=await self.connect();await ws.send_str('[]');msg=await ws.receive();self.assertIn(msg.type.value,[8,257]);await ws.close()
+    async def test_probe_keeps_active_session(self):
+        ws=await self.connect()
+        r=await self.client.get('/gateway/ws',headers={'X-Gateway-Probe':'1','X-Device-Id':'seedling','Authorization':'Bearer test-device-token'})
+        self.assertEqual(r.status,204)
+        self.assertFalse(ws.closed)
+        self.assertIn('seedling',self.app['gateway'].devices)
+        await ws.close()
+    async def test_device_can_reconnect_after_disconnect(self):
+        ws=await self.connect();await ws.close();await asyncio.sleep(.05)
+        ws=await self.connect();self.assertFalse(ws.closed);await ws.close()
     async def test_single_device_session(self):
         from aiohttp import WSServerHandshakeError
         ws=await self.connect()

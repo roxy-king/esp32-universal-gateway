@@ -117,6 +117,7 @@ class GatewayServer:
         ident=r.headers.get('X-Device-Id','');expected=self.config['devices'].get(ident)
         token=r.headers.get('Authorization','')
         if not expected or not token.startswith('Bearer ') or not hmac.compare_digest(digest(token[7:]),expected['token_sha256']):raise web.HTTPUnauthorized()
+        if r.headers.get('X-Gateway-Probe')=='1':return web.Response(status=204)
         previous=self.devices.get(ident)
         if previous and not previous['ws'].closed:raise web.HTTPConflict(text='Device already connected')
         ws=web.WebSocketResponse(heartbeat=15,max_msg_size=4096)

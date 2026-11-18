@@ -6,7 +6,7 @@
 以 **root** 登录Debian/Ubuntu服务器，复制整行：
 
 ```bash
-bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.4.0/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
+bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.5.0/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
 ```
 
 若提示curl不存在，先运行 `apt-get update && apt-get install -y curl ca-certificates`。
@@ -148,3 +148,15 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -InstallDependencies
 - HTTPS 部署请填写证书对应的域名，而不是服务器 IP；端口 443，路径 `/gateway/ws`，开启 TLS。
 - 已在用户 ESP32-S3 N16R8 实机烧录，并由用户确认云端在线。单片机串口执行与全新服务器安装仍需自行验证。
 - 发布包使用通用固件，不含个人 Wi-Fi、域名、密码或设备令牌。首次开机的热点密码从 USB 串口 115200 查看。
+
+## v1.5.0：配置向导与连接验收（固件 1.2.0）
+
+- 三步向导：Wi-Fi → 服务器 → 串口验收，按实时连接状态提示下一步。
+- Wi-Fi 断线按 10～60 秒间隔重试；开启配置热点不再永久关闭重连；扫描暂停期结束后自动恢复。
+- 检查表单参数，提示 TLS/IP 证书风险、令牌缺失、引脚重复和非默认路径。
+- 后台测试 DNS、TCP、TLS 和设备鉴权；测试表单当前值、不保存、不发送串口命令。服务端支持 `X-Gateway-Probe: 1`：鉴权正确返回 204，不占用设备会话；旧版 HTTP 400/409 明确显示尚未确认。
+- 诊断显示校时、云端会话、Wi-Fi 断开原因码、串口完整帧数量及最近帧前 64 字节。
+- 串口 15 秒只读观察；区分无数据、只有字节和完整帧。设备重启时提示重试。执行结果仍须单片机协议反馈。
+- 服务器接口已部署并验证；24 项自动化测试通过。没有连接单片机，不宣称实物双向通信通过。路由器断电恢复仍需现场验收。
+
+详细步骤见 `docs/验收与配置向导.txt`。现有安装可重新运行本 README 的版本安装命令升级服务端，安装器保留现有凭据；自定义部署请先备份。
