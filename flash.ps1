@@ -15,4 +15,10 @@ $answer=Read-Host 'Type FLASH to continue'
 if($answer -cne 'FLASH'){exit}
 & ./tools/esptool.exe --chip esp32s3 --port $Port --baud 460800 write-flash 0x0 $image
 if($LASTEXITCODE -ne 0){throw 'Flashing failed'}
-Write-Host 'Done. Tap RST. Open serial monitor at 115200 to read Gateway-Setup hotspot password.'
+Write-Host 'Flash verified. Reading the device hotspot information...'
+try {
+ & (Join-Path $PSScriptRoot 'read-hotspot.ps1') -Port $Port
+} catch {
+ Write-Warning ('Firmware was flashed successfully, but hotspot information could not be read: ' + $_.Exception.Message)
+ Write-Host 'Run read-hotspot.cmd to retry reading only. Do not flash again just to read the password.'
+}

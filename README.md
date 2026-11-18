@@ -6,7 +6,7 @@
 以 **root** 登录Debian/Ubuntu服务器，复制整行：
 
 ```bash
-bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.5.2/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
+bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.5.3/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
 ```
 
 若提示curl不存在，先运行 `apt-get update && apt-get install -y curl ca-certificates`。
@@ -172,3 +172,16 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -InstallDependencies
 ## v1.5.2：RGB 默认关闭（固件 1.2.2）
 
 启动时对当前 esp32s3 板卡定义的 RGB_BUILTIN（GPIO48）写入黑色，正常运行不再点亮 RGB；小红色电源指示灯不受此设置影响。保留 v1.5.1 的热点密码修改功能。其他板型若将 RGB 接到 GPIO38，需要按实际板卡定义编译，不应直接驱动未核实的引脚。
+
+## v1.5.3：烧录后自动显示配网信息
+
+运行 `flash.cmd`，烧录校验成功后会自动在 115200 波特率读取 ESP 启动信息，并显示热点名称、该设备的实际密码和 `http://192.168.4.1`。无需额外安装 Python 或串口助手。请先关闭占用串口的软件。
+
+- 脚本会正常复位一次 ESP，不会额外擦除配置；密码只显示在当前窗口，不保存到日志文件。
+- 如果自动复位未触发，可在读取窗口等待时点按 RST。超时不会把已经成功的烧录判定为失败。
+- 单独双击 `read-hotspot.cmd`，输入 COM 口，也可以读取当前密码；这个脚本不会烧录。读取时会复位设备，通信会短暂中断。
+- 已配置设备可能不开热点；读取后按住 BOOT 4 秒即可开启。
+- 全量 `flash.cmd` 原本就可能清除配置；只想查看密码请使用 `read-hotspot.cmd`。
+- 本版本固件仍为 1.2.2，无需给现有 ESP 再次烧录。
+
+验证：Windows PowerShell 5.1 脚本语法与解析测试通过（包括分段串口数据、8位密码及密码空格）；COM5 实机成功读取当前热点信息。输出密码不要截图公开。
