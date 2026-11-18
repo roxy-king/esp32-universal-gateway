@@ -12,7 +12,7 @@ def validate_domain(domain):
     if not DOMAIN.fullmatch(domain):raise ValueError('请输入完整域名，不含协议、端口或路径')
     return domain
 def credentials(domain,user,password,device):
-    if not user.strip() or len(user)>100 or not 12<=len(password)<=256:raise ValueError('用户名必填，密码12至256位')
+    if not user.strip() or len(user)>100 or not 8<=len(password)<=256:raise ValueError('用户名必填，密码8至256位')
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,48}',device):raise ValueError('设备ID格式错误')
     token=secrets.token_urlsafe(32);salt=secrets.token_hex(16)
     c=dict(origin='https://'+validate_domain(domain),username=user.strip(),password_salt=salt,password_hash=hashlib.pbkdf2_hmac('sha256',password.encode(),bytes.fromhex(salt),600000).hex(),devices={device:{'token_sha256':hashlib.sha256(token.encode()).hexdigest()}})
@@ -40,7 +40,7 @@ def main():
         if not (CONFIG/'pairing.json').exists():raise SystemExit('缺少配对文件，不会擅自更换令牌。请恢复备份。')
     else:
         domain=validate_domain(input('已解析到本服务器的独立域名：'))
-        user=input('网页登录用户名：').strip();password=getpass.getpass('网页登录密码（至少12位）：')
+        user=input('网页登录用户名：').strip();password=getpass.getpass('网页登录密码（至少8位）：')
         if password!=getpass.getpass('再次输入密码：'):raise SystemExit('密码不一致')
         device='gateway-'+secrets.token_hex(4)
         c,p=credentials(domain,user,password,device)

@@ -6,6 +6,10 @@ def module(name):
     spec=importlib.util.spec_from_file_location(name,ROOT/'deploy'/f'{name}.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
 install=module('install');pair=module('pair')
 class DeploymentTests(unittest.TestCase):
+    def test_installer_accepts_eight_not_seven(self):
+        c,p=install.credentials('gateway.example.com','user','eight888','seedling-1')
+        self.assertTrue(c['password_hash'])
+        with self.assertRaises(ValueError):install.credentials('gateway.example.com','user','seven77','seedling-1')
     def test_generated_pair_matches_server(self):
         c,p=install.credentials('gateway.example.com','用户','long-test-password','seedling-1')
         self.assertEqual(c['devices'][p['device_id']]['token_sha256'],hashlib.sha256(p['token'].encode()).hexdigest())

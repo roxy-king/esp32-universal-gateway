@@ -1,5 +1,5 @@
 """Gateway v1 reference server. Bind loopback; put nginx HTTPS in front for WAN."""
-import argparse, asyncio, hashlib, hmac, json, math, re, secrets, time
+import argparse, asyncio, hashlib, hmac, json, math, re, secrets, time, os, tempfile
 from collections import deque
 from pathlib import Path
 from aiohttp import web, WSMsgType
@@ -21,8 +21,14 @@ def validate_command(data,mode):
     return encoding,text
 
 class GatewayServer:
-    def __init__(self,config):
-        self.config=config; self.sessions={};self.failures={};self.devices={};self.events=deque(maxlen=200);self.seq=0
+    def __init__(self,config,account_file=None):
+        self.config=dict(config); self.sessions={};self.failures={};self.devices={};self.events=deque(maxlen=200);self.seq=0
+        self.account_file=Path(account_file) if account_file else None
+        self.account_lock=asyncio.Lock();self.account_failures=[];self.revision=0
+        if self.account_file and self.account_file.exists():
+            a=json.loads(self.account_file.read_text(encoding='utf-8'))
+            if not isinstance(a.get('username'),str) or not 1<=len(a['username'])<=100 or not re.fullmatch('[0-9a-f]{32}',a.get('password_salt','')) or not re.fullmatch('[0-9a-f]{64}',a.get('password_hash','')):raise ValueError('Invalid persisted account')
+            self.config.update({k:a[k] for k in ('username','password_salt','password_hash')})
         self.pending={};self.last_command={}
     def event(self,device,kind,detail):
         self.seq+=1;self.events.append(dict(seq=self.seq,time=time.time(),device=device,type=kind,detail=detail))
@@ -45,8 +51,9 @@ class GatewayServer:
         d=await r.json();username=d.get('username','');password=d.get('password','')
         if not isinstance(username,str) or not isinstance(password,str) or len(password)>256:raise web.HTTPBadRequest(text='登录参数无效')
         self.failures[ip]=attempts+[now]
+        revision=self.revision
         computed=await asyncio.to_thread(password_hash,password,self.config['password_salt'])
-        if not hmac.compare_digest(username.encode(),self.config['username'].encode()) or not hmac.compare_digest(computed,self.config['password_hash']):raise web.HTTPUnauthorized(text='用户名或密码错误')
+        if revision!=self.revision or not hmac.compare_digest(username.encode(),self.config['username'].encode()) or not hmac.compare_digest(computed,self.config['password_hash']):raise web.HTTPUnauthorized(text='用户名或密码错误')
         self.failures.pop(ip,None)
         self.sessions={k:v for k,v in self.sessions.items() if v['expires']>now}
         if len(self.sessions)>=64:self.sessions.pop(next(iter(self.sessions)))
@@ -54,12 +61,38 @@ class GatewayServer:
         response=web.json_response({'csrf':session['csrf']});response.set_cookie('gateway_session',sid,httponly=True,secure=self.config['origin'].startswith('https:'),samesite='Strict',max_age=43200);return response
     async def logout(self,r):
         self.mutation(r);self.sessions.pop(r.cookies.get('gateway_session'),None);response=web.json_response({'ok':True});response.del_cookie('gateway_session');return response
+    async def account(self,r):
+        self.mutation(r)
+        if not self.account_file:raise web.HTTPServiceUnavailable(text='未配置账号保存路径，请更新服务启动参数')
+        d=await r.json();old=d.get('current_password');new=d.get('new_password');confirm=d.get('confirm_password');username=d.get('username',self.config['username'])
+        if not isinstance(username,str) or not 1<=len(username.strip())<=100 or any(ord(c)<32 for c in username):raise web.HTTPBadRequest(text='用户名应为1至100字')
+        if not isinstance(old,str) or len(old)>256 or not isinstance(new,str) or not 8<=len(new)<=256:raise web.HTTPBadRequest(text='新密码须为8至256位')
+        if new!=confirm:raise web.HTTPBadRequest(text='两次新密码不一致')
+        async with self.account_lock:
+            self.mutation(r)
+            now=time.time();self.account_failures=[t for t in self.account_failures if now-t<300]
+            if len(self.account_failures)>=10:raise web.HTTPTooManyRequests(text='验证尝试过多，5分钟后再试')
+            self.account_failures.append(now)
+            computed=await asyncio.to_thread(password_hash,old,self.config['password_salt'])
+            if not hmac.compare_digest(computed,self.config['password_hash']):raise web.HTTPForbidden(text='当前密码不正确')
+            salt=secrets.token_hex(16)
+            a=dict(username=username.strip(),password_salt=salt,password_hash=await asyncio.to_thread(password_hash,new,salt))
+            temp=None
+            try:
+                with tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',dir=self.account_file.parent,delete=False) as f:
+                    temp=Path(f.name);os.chmod(temp,0o600);json.dump(a,f);f.flush();os.fsync(f.fileno())
+                os.replace(temp,self.account_file)
+            except OSError:
+                if temp and temp.exists():temp.unlink()
+                raise web.HTTPServiceUnavailable(text='账号保存失败，原账号密码保持不变')
+            self.config.update(a);self.revision+=1;self.sessions.clear();self.failures.clear();self.account_failures=[]
+        response=web.json_response({'message':'账号已更新，请使用新账号密码重新登录'});response.del_cookie('gateway_session');return response
     async def state(self,r):
         session=self.user(r);now=time.time();devices=[]
         for ident in self.config['devices']:
             d=self.devices.get(ident,{});s=d.get('status',{});connected=bool(d.get('ws') is not None and not d['ws'].closed and now-d.get('seen',0)<20)
             devices.append(dict(id=ident,connected=connected,status=s,last_seen=d.get('seen')))
-        return web.json_response({'csrf':session['csrf'],'devices':devices,'events':list(self.events)})
+        return web.json_response({'csrf':session['csrf'],'username':self.config['username'],'devices':devices,'events':list(self.events)})
     async def command(self,r):
         self.mutation(r);ident=r.match_info['device'];device=self.devices.get(ident)
         if not device or device['ws'].closed or time.time()-device.get('seen',0)>20:raise web.HTTPConflict(text='网关离线或状态过期，未发送')
@@ -133,12 +166,12 @@ async def errors(r,handler):
     response.headers['Cache-Control']='no-store';response.headers['X-Content-Type-Options']='nosniff';response.headers['X-Frame-Options']='DENY'
     return response
 
-def create_app(config):
-    s=GatewayServer(config);app=web.Application(client_max_size=4096,middlewares=[errors]);app['gateway']=s
-    app.add_routes([web.get('/',s.index),web.post('/api/login',s.login),web.post('/api/logout',s.logout),web.get('/api/state',s.state),web.post('/api/devices/{device}/tx',s.command),web.get('/gateway/ws',s.websocket)])
+def create_app(config,account_file=None):
+    s=GatewayServer(config,account_file);app=web.Application(client_max_size=4096,middlewares=[errors]);app['gateway']=s
+    app.add_routes([web.get('/',s.index),web.post('/api/login',s.login),web.post('/api/logout',s.logout),web.post('/api/account',s.account),web.get('/api/state',s.state),web.post('/api/devices/{device}/tx',s.command),web.get('/gateway/ws',s.websocket)])
     app.on_cleanup.append(s.cleanup);return app
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--config',required=True);parser.add_argument('--host',default='127.0.0.1');parser.add_argument('--port',type=int,default=8766);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--config',required=True);parser.add_argument('--account-file');parser.add_argument('--host',default='127.0.0.1');parser.add_argument('--port',type=int,default=8766);args=parser.parse_args()
     config=json.loads(Path(args.config).read_text(encoding='utf-8'))
-    web.run_app(create_app(config),host=args.host,port=args.port,access_log=None)
+    web.run_app(create_app(config,args.account_file or str(Path(args.config).with_name("account.json"))),host=args.host,port=args.port,access_log=None)

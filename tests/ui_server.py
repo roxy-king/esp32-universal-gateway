@@ -1,12 +1,12 @@
 """Browser QA only: loopback server and simulated gateway, no hardware commands."""
-import asyncio,sys
+import asyncio,sys,tempfile
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'server'))
 from server import create_app,digest,password_hash
 from aiohttp import web,ClientSession
 async def run():
     cfg=dict(origin='http://127.0.0.1:8878',username='qa',password_salt='12'*16,password_hash=password_hash('qa-only-test-password','12'*16),devices={'seedling-demo':{'token_sha256':digest('qa-only-token')}})
-    app=create_app(cfg);runner=web.AppRunner(app);await runner.setup();await web.TCPSite(runner,'127.0.0.1',8878).start()
+    tmp=tempfile.TemporaryDirectory();app=create_app(cfg,Path(tmp.name)/"account.json");runner=web.AppRunner(app);await runner.setup();await web.TCPSite(runner,'127.0.0.1',8878).start()
     async with ClientSession() as s:
         async with s.ws_connect('http://127.0.0.1:8878/gateway/ws',headers={'Authorization':'Bearer qa-only-token','X-Device-Id':'seedling-demo'}) as ws:
             async def publish():

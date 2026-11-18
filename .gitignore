@@ -5,6 +5,9 @@ private/
 **/private/
 *token*.txt
 PrivateConfig.h
+account.json
+server.json
+pairing*.json
 build/
 tools/
 firmware_release/

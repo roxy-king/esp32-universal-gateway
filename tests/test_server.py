@@ -1,4 +1,4 @@
-import asyncio, json, sys, unittest
+import asyncio, json, sys, unittest, tempfile
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'server'))
 from server import create_app,validate_command,digest,password_hash
@@ -15,7 +15,30 @@ class ProtocolTests(unittest.TestCase):
 class ServerTests(AioHTTPTestCase):
     async def get_application(self):
         self.origin='http://localhost';salt='11'*16
-        return create_app(dict(origin=self.origin,username='student',password_salt=salt,password_hash=password_hash('test-password-123',salt),devices={'seedling':{'token_sha256':digest('test-device-token')}}))
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.account_file=Path(self.tmp.name)/'account.json'
+        self.original=dict(origin=self.origin,username='student',password_salt=salt,password_hash=password_hash('test-password-123',salt),devices={'seedling':{'token_sha256':digest('test-device-token')}})
+        return create_app(self.original,self.account_file)
+    async def test_account_eight_chars_persist_and_revoke(self):
+        from server import GatewayServer
+        headers=await self.login()
+        r=await self.client.post('/api/account',json=dict(username='新账号',current_password='test-password-123',new_password='newpass8',confirm_password='newpass8'),headers=headers)
+        self.assertEqual(r.status,200);self.assertEqual((await self.client.get('/api/state')).status,401)
+        self.assertNotIn('newpass8',self.account_file.read_text())
+        restored=GatewayServer(self.original,self.account_file);self.assertEqual(restored.config['username'],'新账号');self.assertEqual(restored.config['devices'],self.original['devices'])
+        self.assertEqual(password_hash('newpass8',restored.config['password_salt']),restored.config['password_hash'])
+        r=await self.client.post('/api/login',json=dict(username='新账号',password='newpass8'),headers={'Origin':self.origin});self.assertEqual(r.status,200)
+        r=await self.client.post('/api/login',json=dict(username='student',password='test-password-123'),headers={'Origin':self.origin});self.assertEqual(r.status,401)
+    async def test_account_invalid_old_short_mismatch_csrf(self):
+        headers=await self.login()
+        good=dict(username='student',current_password='test-password-123',new_password='newpass8',confirm_password='newpass8')
+        self.assertEqual((await self.client.post('/api/account',json=good)).status,403)
+        for changes,status in [({'current_password':'wrong'},403),({'new_password':'short'},400),({'confirm_password':'mismatch'},400)]:
+            r=await self.client.post('/api/account',json=dict(good,**changes),headers=headers);self.assertEqual(r.status,status)
+        self.assertFalse(self.account_file.exists());self.assertEqual((await self.client.get('/api/state')).status,200)
+    async def test_account_storage_failure_retains_original(self):
+        headers=await self.login();self.app['gateway'].account_file=Path(self.tmp.name)/'missing'/'account.json'
+        r=await self.client.post('/api/account',json=dict(username='changed',current_password='test-password-123',new_password='newpass8',confirm_password='newpass8'),headers=headers)
+        self.assertEqual(r.status,503);self.assertEqual(self.app['gateway'].config['username'],'student');self.assertEqual((await self.client.get('/api/state')).status,200)
     async def login(self):
         r=await self.client.post('/api/login',json={'username':'student','password':'test-password-123'},headers={'Origin':self.origin});self.assertEqual(r.status,200)
         return {'Origin':self.origin,'X-CSRF-Token':(await r.json())['csrf']}
