@@ -24,6 +24,7 @@ uint8_t buf[512]; size_t used=0;
 String bootId;
 uint32_t wifiStartAt=0,wifiBeginAt=0;
 bool scanning=false;
+uint32_t apRestartAt=0;
 uint32_t scanAt=0,pauseRetryAt=0,offlineAt=0,retryDelay=10000,rxFrames=0;
 bool wasWifi=false;
 volatile uint16_t wifiReason=0;
@@ -68,6 +69,7 @@ void probeTask(void* arg){
 String randomHex(){return String(esp_random(),HEX)+String(esp_random(),HEX);}
 void logEvent(const String& s){logs[logAt++%24]=String(millis()/1000)+"s "+s.substring(0,140);Serial.println(s);}
 bool safeText(const String&s,size_t max){if(s.length()>max)return false;for(size_t i=0;i<s.length();i++)if(uint8_t(s[i])<32||s[i]==127)return false;return true;}
+bool validAPPassword(const String& s){if(s.length()<8||s.length()>63)return false;for(char c:s)if(uint8_t(c)<32||uint8_t(c)>126)return false;return true;}
 bool safeId(const String&s){if(!s.length()||s.length()>48)return false;for(char c:s)if(!isalnum(c)&&c!='-'&&c!='_')return false;return true;}
 bool safePin(int n){return n==4||n==5||n==6||n==7||n==15||n==16||n==17||n==18;}
 void defaults(){
@@ -109,7 +111,7 @@ void startAP(){
  if(ap){nonce=randomHex();logEvent("配置热点已开启 "+apName);Serial.println("AP password: "+apPassword);}
 }
 void status(JsonDocument& d){
- d["firmware"]="UniversalGateway 1.2.0";d["device_id"]=cfg["device_id"];d["boot_id"]=bootId;
+ d["firmware"]="UniversalGateway 1.2.1";d["device_id"]=cfg["device_id"];d["boot_id"]=bootId;
  d["wifi"]=WiFi.status()==WL_CONNECTED;d["ip"]=WiFi.localIP().toString();d["rssi"]=WiFi.status()==WL_CONNECTED?WiFi.RSSI():0;
  d["ssid"]=cfg["ssid"];d["cloud_configured"]=String(cfg["host"]|"").length()>0;
  d["wifi_message"]=WiFi.status()==WL_CONNECTED?"已连接 Wi-Fi":!String(cfg["ssid"]|"").length()?"请选择 Wi-Fi":WiFi.status()==WL_NO_SSID_AVAIL?"找不到热点，请确认已开启 2.4 GHz":WiFi.status()==WL_CONNECT_FAILED?"连接失败，请检查密码和路由器设置":wifiStartAt&&uint32_t(millis()-wifiStartAt)<30000?"正在连接，请稍候…":"尚未连接，请检查密码、信号和路由器 DHCP；可重新连接";
@@ -180,6 +182,17 @@ void setupPortal(){
   String s;serializeJson(next,s);if(nv.putString("config",s)!=s.length()){error("保存失败",500);return;}
   JsonDocument d;d["message"]="配置已保存，即将重启；修改后请重新连接热点";jsonReply(d);rebootAt=millis()+1200;
  });
+ http.on("/api/ap-password",HTTP_POST,[]{
+  if(!mutation())return;
+  if(apRestartAt){error("热点正在更新，请稍后重新连接",409);return;}
+  JsonDocument patch;if(http.arg("plain").length()>512||deserializeJson(patch,http.arg("plain"))||!patch["current_password"].is<String>()||!patch["new_password"].is<String>()||!patch["confirm_password"].is<String>()){error("密码参数无效");return;}
+  if(patch["current_password"].as<String>()!=apPassword){error("当前热点密码不正确",403);return;}
+  String pass=patch["new_password"].as<String>();
+  if(!validAPPassword(pass)){error("新密码须为 8～63 位英文字母、数字或英文符号");return;}
+  if(pass!=patch["confirm_password"].as<String>()){error("两次新密码不一致");return;}
+  if(nv.putString("ap_pass",pass)!=pass.length()){error("保存失败，密码未更新",500);return;}
+  apPassword=pass;JsonDocument d;d["message"]="热点密码已保存，2 秒后热点重新开启。请用新密码重新连接，再打开 192.168.4.1。";jsonReply(d);apRestartAt=millis()+2000;
+ });
  http.on("/api/reboot",HTTP_POST,[]{if(!mutation())return;JsonDocument d;d["message"]="正在重启";jsonReply(d);rebootAt=millis()+1000;});
  http.on("/api/reset",HTTP_POST,[]{if(!mutation())return;if(http.arg("plain")!="RESET"){error("恢复出厂确认不正确");return;}nv.remove("config");JsonDocument d;d["message"]="已清除项目配置，热点密码保留";jsonReply(d);rebootAt=millis()+1000;});
  http.onNotFound([]{error("Not found",404);});http.begin();
@@ -240,7 +253,7 @@ void readUART(){
 void setup(){
  testMutex=xSemaphoreCreateMutex();Serial.begin(115200);pinMode(0,INPUT_PULLUP);nv.begin("unigw",false);bootId=randomHex();defaults();
  String saved=nv.getString("config","");if(saved.length()){JsonDocument d;if(!deserializeJson(d,saved)&&validate(d,false).isEmpty())cfg.set(d);}
- apPassword=nv.getString("ap_pass","");if(apPassword.length()<12){apPassword=randomHex()+"Gw";nv.putString("ap_pass",apPassword);}
+ apPassword=nv.getString("ap_pass","");if(!validAPPassword(apPassword)){apPassword=randomHex()+"Gw";nv.putString("ap_pass",apPassword);}
  apName="Gateway-Setup-"+String(uint32_t(ESP.getEfuseMac()),HEX);Serial.println("AP: "+apName+" password: "+apPassword);
  uart.setRxBufferSize(4096);uart.setTxBufferSize(1024);
  String fmt=cfg["format"]|"8N1";uint32_t format=fmt=="8E1"?SERIAL_8E1:fmt=="8O1"?SERIAL_8O1:fmt=="8N2"?SERIAL_8N2:SERIAL_8N1;
@@ -253,6 +266,7 @@ void setup(){
 }
 void loop(){
  readUART();http.handleClient();
+ if(apRestartAt&&int32_t(millis()-apRestartAt)>=0){apRestartAt=0;WiFi.softAPdisconnect(false);ap=false;startAP();logEvent("配置热点密码已更新");}
  if(wifiBeginAt&&int32_t(millis()-wifiBeginAt)>=0){
   wifiBeginAt=0;ws.disconnect();started=false;online=false;WiFi.disconnect(false,false);WiFi.scanDelete();scanning=false;
   WiFi.begin(cfg["ssid"].as<const char*>(),cfg["wifi_password"].as<const char*>());wifiStartAt=lastRetry=millis();logEvent("正在连接已配置 Wi-Fi");

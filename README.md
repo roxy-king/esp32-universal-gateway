@@ -6,7 +6,7 @@
 以 **root** 登录Debian/Ubuntu服务器，复制整行：
 
 ```bash
-bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.5.0/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
+bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.5.1/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
 ```
 
 若提示curl不存在，先运行 `apt-get update && apt-get install -y curl ca-certificates`。
@@ -160,3 +160,11 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -InstallDependencies
 - 服务器接口已部署并验证；24 项自动化测试通过。没有连接单片机，不宣称实物双向通信通过。路由器断电恢复仍需现场验收。
 
 详细步骤见 `docs/验收与配置向导.txt`。现有安装可重新运行本 README 的版本安装命令升级服务端，安装器保留现有凭据；自定义部署请先备份。
+
+## v1.5.1：修改配置热点密码（固件 1.2.1）
+
+在设备热点页面“维护 → 配置热点密码”输入当前密码、新密码及确认密码。支持 8～63 位可打印 ASCII 字符；两次新密码必须一致。保存成功后约 2 秒重启配置热点，重新连接时使用新密码；路由器 Wi-Fi、服务器凭据不变。8～11 位自定义密码在设备重启后同样保留。
+
+忘记密码可通过 USB 调试串口 115200 查看。恢复出厂配置仍保留热点密码。此操作仅允许设备热点内携带有效 nonce 的请求，密码不通过配置导出或状态 API 返回。
+
+本版不修改 RGB 灯行为；当前固件未把灯色定义为在线或故障状态。不同板卡的电源灯和 RGB 引脚设计可能不同。
