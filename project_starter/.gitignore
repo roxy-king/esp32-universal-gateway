@@ -1,0 +1,16 @@
+private/
+.venv/
+.venv-backup-*/
+__pycache__/
+*.pyc
+firmware/output/
+build/
+ui-review/
+.taste-skill/
+*.zip
+*.db
+*.db-wal
+*.db-shm
+!tools/
+!tools/**
+!firmware/prebuilt/SHA256SUMS.txt

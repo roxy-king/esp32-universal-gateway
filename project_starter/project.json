@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "id": "bench",
+  "name": "设备实验台",
+  "description": "CT107D 板载 LED 通信与控制示例",
+  "hardware": {"mcu": "IAP15F2K61S2", "esp": "ESP32-S3 N16R8", "clock_hz": 11059200, "baud": 9600, "rx": "P3.6", "tx": "P3.7"},
+  "features": {"schedules": true, "assistant": true, "presets": true},
+  "telemetry_timeout": 10,
+  "fields": [
+    {"key": "led", "label": "指示灯", "unit": "", "min": 0, "max": 1},
+    {"key": "remaining", "label": "剩余点亮时间", "unit": "秒", "min": 0, "max": 60},
+    {"key": "uptime", "label": "运行时间", "unit": "秒", "min": 0, "max": 65535}
+  ],
+  "commands": [
+    {"key": "led", "label": "设置指示灯", "wire": "LED", "min": 0, "max": 1, "default": 1, "unit": "", "choices": {"0": "关闭", "1": "打开"}, "confirm": false, "schedulable": true, "ai": true},
+    {"key": "pulse", "label": "限时点亮", "wire": "PULSE", "min": 1, "max": 60, "default": 5, "unit": "秒", "confirm": true, "schedulable": true, "ai": true},
+    {"key": "stop", "label": "关闭并取消计时", "wire": "STOP", "min": 0, "max": 0, "default": 0, "unit": "", "confirm": false, "schedulable": false, "ai": true}
+  ]
+}
