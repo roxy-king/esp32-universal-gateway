@@ -1,10 +1,20 @@
-# Link / ESP32 通用通信网关 1.1
+# Link / ESP32 通用通信网关 1.2
 
 独立工程，不覆盖洗衣机固件与网站。现成固件仅针对你这块 **ESP32-S3 N16R8（16MB Flash）**。
 
 ## 一键部署与自动配对（新增）
 
-从私有仓库 `roxy-king/esp32-universal-gateway` 的 **Releases** 下载完整包。
+仓库已公开，无需GitHub登录。以 **root** 登录Debian/Ubuntu服务器，复制整行：
+
+```bash
+bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.2.0/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
+```
+
+若提示curl不存在，先运行 `apt-get update && apt-get install -y curl ca-certificates`。
+向导会下载固定v1.2.0源码，安装服务、配置HTTPS并生成ESP配对文件。请先完成独立域名DNS解析，并开放80/443端口。
+完成后把 `/etc/esp-gateway/pairing.json` 下载到电脑的 `private/pairing.json`，连接ESP热点并运行 `connect.cmd`；服务器不能替你连接本地设备热点。
+
+也可以从仓库的 **Releases** 下载完整包，使用Windows向导：
 双击 **setup.cmd**：SSH上传服务端 → 安装服务与HTTPS → 下载配对凭据 → 连接ESP热点 → 自动写入服务器与Wi-Fi配置。
 已部署服务器、只需重新配对时运行 **connect.cmd**。首次域名解析、SSH登录和连接热点仍需按提示操作。
 详细步骤：[一键部署与配对](docs/一键部署与配对.md)。
