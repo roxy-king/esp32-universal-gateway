@@ -7,11 +7,11 @@
 仓库已公开，无需GitHub登录。以 **root** 登录Debian/Ubuntu服务器，复制整行：
 
 ```bash
-bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.3.0/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
+bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.4.0/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
 ```
 
 若提示curl不存在，先运行 `apt-get update && apt-get install -y curl ca-certificates`。
-向导会下载固定v1.3.0源码，安装服务、配置HTTPS并生成ESP配对文件。请先完成独立域名DNS解析，并开放80/443端口。
+向导会下载固定v1.4.0源码，安装服务、配置HTTPS并生成ESP配对文件。请先完成独立域名DNS解析，并开放80/443端口。
 完成后把 `/etc/esp-gateway/pairing.json` 下载到电脑的 `private/pairing.json`，连接ESP热点并运行 `connect.cmd`；服务器不能替你连接本地设备热点。
 
 也可以从仓库的 **Releases** 下载完整包，使用Windows向导：
@@ -137,5 +137,15 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -InstallDependencies
 
 安装时密码最低8位。登录控制台后展开页面底部的“账号设置”，填写用户名、当前密码和两次新密码即可保存；保存后需重新登录，所有旧会话失效。设备ID、设备令牌与ESP配置不变，不需要重刷ESP。
 
-已用本向导安装的服务器，重新运行上面的v1.3.0命令即可更新，保留原账号、令牌与配对文件。首次升级不强迫你修改旧密码；可以登录后再改成8位或更长。
+已用本向导安装的服务器，重新运行上面的v1.4.0命令即可更新，保留原账号、令牌与配对文件。首次升级不强迫你修改旧密码；可以登录后再改成8位或更长。
 账号修改保存于 `/var/lib/esp-gateway/account.json`，通过systemd StateDirectory限定写入目录。该文件优先于初始server.json内的账号设置，备份时也需包含它。手动启动时默认保存在server.json同目录，也可以传 `--account-file` 指定可写路径。
+
+## v1.4.0 配网更新（固件 1.1.1）
+
+- 独立 Wi-Fi 配网页面：扫描附近 2.4 GHz 网络、手动输入隐藏网络、显示密码和连接结果。
+- Wi-Fi 可单独保存，不需要先填写服务器和设备令牌。
+- 修复扫描与未成功连接/后台重连的冲突。配置热点开启期间，失败连接请在页面手动重试；重启后恢复正常启动连接流程。
+- 长按 BOOT 约 4 秒开启热点，在浏览器访问 http://192.168.4.1 。
+- HTTPS 部署请填写证书对应的域名，而不是服务器 IP；端口 443，路径 `/gateway/ws`，开启 TLS。
+- 已在用户 ESP32-S3 N16R8 实机烧录，并由用户确认云端在线。单片机串口执行与全新服务器安装仍需自行验证。
+- 发布包使用通用固件，不含个人 Wi-Fi、域名、密码或设备令牌。首次开机的热点密码从 USB 串口 115200 查看。

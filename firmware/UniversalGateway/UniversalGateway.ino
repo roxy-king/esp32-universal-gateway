@@ -21,6 +21,8 @@ uint32_t rxBytes=0,txBytes=0,drops=0,lastRx=0,lastHeartbeat=0,lastRetry=0,hold=0
 uint32_t publishWindow=0,publishCount=0;
 uint8_t buf[512]; size_t used=0;
 String bootId;
+uint32_t wifiStartAt=0,wifiBeginAt=0;
+bool scanning=false;
 
 String randomHex(){return String(esp_random(),HEX)+String(esp_random(),HEX);}
 void logEvent(const String& s){logs[logAt++%24]=String(millis()/1000)+"s "+s.substring(0,140);Serial.println(s);}
@@ -34,11 +36,11 @@ void defaults(){
  cfg["format"]="8N1";cfg["mode"]="line";cfg["ending"]="crlf";cfg["idle_ms"]=20;cfg["ntp"]="pool.ntp.org";
  cfg["remote_write"]=false;
 }
-String validate(JsonDocument& c){
+String validate(JsonDocument& c,bool cloudRequired=true){
  if(!String(c["name"]|"").length()||!safeText(c["name"]|"",48)||!safeId(c["device_id"]|""))return "设备名称或ID不正确";
  String ssid=c["ssid"]|"",pass=c["wifi_password"]|"",host=c["host"]|"",path=c["path"]|"",token=c["token"]|"",cert=c["ca"]|"",ntp=c["ntp"]|"";
  if(!ssid.length()||!safeText(ssid,32)||pass.length()>63||(pass.length()&&pass.length()<8))return "Wi-Fi名称或密码长度不正确";
- if(host.length()<1||host.length()>253)return "请填写服务器主机名或IPv4地址，不含协议";
+ if((cloudRequired&&host.length()<1)||host.length()>253)return "请填写服务器主机名或IPv4地址，不含协议";
  for(char ch:host)if(!isalnum(ch)&&ch!='.'&&ch!='-')return "主机名不能含协议、端口、路径或空格";
  if(!path.startsWith("/")||!safeText(path,128)||path.indexOf(' ')>=0)return "路径须以 / 开头，不能含空格";
  int port=c["port"]|0,baud=c["baud"]|0;
@@ -48,7 +50,7 @@ String validate(JsonDocument& c){
  if(fmt!="8N1"&&fmt!="8E1"&&fmt!="8O1"&&fmt!="8N2")return "不支持的串口格式";
  if(mode!="line"&&mode!="hex")return "不支持的传输模式";
  if(ending!="crlf"&&ending!="lf"&&ending!="none")return "不支持的行尾";
- if(!safeText(token,256)||token.length()<16)return "设备令牌至少16字符，不允许换行";
+ if(!safeText(token,256)||((cloudRequired||token.length())&&token.length()<16))return "设备令牌至少16字符，不允许换行";
  if(!safeText(ntp,128)||!ntp.length()||ntp.indexOf(' ')>=0)return "NTP服务器不正确";
  if((c["idle_ms"]|0)<5||(c["idle_ms"]|0)>200)return "分包间隔应为5至200毫秒";
  if(cert.length()>4096||(cert.length()&&(!cert.startsWith("-----BEGIN CERTIFICATE-----")||cert.indexOf("-----END CERTIFICATE-----")<0)))return "CA证书格式不正确";
@@ -66,8 +68,10 @@ void startAP(){
  if(ap){nonce=randomHex();logEvent("配置热点已开启 "+apName);Serial.println("AP password: "+apPassword);}
 }
 void status(JsonDocument& d){
- d["firmware"]="UniversalGateway 1.0.0";d["device_id"]=cfg["device_id"];d["boot_id"]=bootId;
+ d["firmware"]="UniversalGateway 1.1.1";d["device_id"]=cfg["device_id"];d["boot_id"]=bootId;
  d["wifi"]=WiFi.status()==WL_CONNECTED;d["ip"]=WiFi.localIP().toString();d["rssi"]=WiFi.status()==WL_CONNECTED?WiFi.RSSI():0;
+ d["ssid"]=cfg["ssid"];d["cloud_configured"]=String(cfg["host"]|"").length()>0;
+ d["wifi_message"]=WiFi.status()==WL_CONNECTED?"已连接 Wi-Fi":!String(cfg["ssid"]|"").length()?"请选择 Wi-Fi":WiFi.status()==WL_NO_SSID_AVAIL?"找不到热点，请确认已开启 2.4 GHz":WiFi.status()==WL_CONNECT_FAILED?"连接失败，请检查密码和路由器设置":wifiStartAt&&uint32_t(millis()-wifiStartAt)<30000?"正在连接，请稍候…":"尚未连接，请检查密码、信号和路由器 DHCP；可重新连接";
  d["clock"]=time(nullptr)>1700000000;d["cloud"]=online;d["rx_bytes"]=rxBytes;d["tx_bytes"]=txBytes;d["dropped_frames"]=drops;
  d["last_rx_ms"]=rxBytes?int64_t(uint32_t(millis()-lastRx)):-1;d["uptime_s"]=millis()/1000;d["free_heap"]=ESP.getFreeHeap();
  d["remote_write"]=cfg["remote_write"];d["mode"]=cfg["mode"];
@@ -77,6 +81,31 @@ void setupPortal(){
  http.on("/",HTTP_GET,[]{if(!local()){error("管理面板仅限设备热点",403);return;}http.sendHeader("Cache-Control","no-store");http.send_P(200,"text/html; charset=utf-8",PORTAL);});
  http.on("/api/config",HTTP_GET,[]{if(!local()){error("仅限配置热点",403);return;}JsonDocument d;d.set(cfg);d.remove("wifi_password");d.remove("token");d["token_set"]=String(cfg["token"]|"").length()>0;d["nonce"]=nonce;jsonReply(d);});
  http.on("/api/status",HTTP_GET,[]{if(!local()){error("仅限配置热点",403);return;}JsonDocument d;status(d);JsonArray a=d["logs"].to<JsonArray>();for(unsigned i=logAt>24?logAt-24:0;i<logAt;i++)a.add(logs[i%24]);jsonReply(d);});
+ http.on("/api/scan",HTTP_POST,[]{
+  if(!mutation())return;
+  if(wifiBeginAt){error("正在提交连接，请稍后重试",409);return;}
+  if(!scanning&&WiFi.status()!=WL_CONNECTED){WiFi.setAutoReconnect(false);WiFi.disconnect(false,false);wifiStartAt=0;lastRetry=millis();}
+  if(!scanning){WiFi.scanDelete();int result=WiFi.scanNetworks(true,true);if(result==WIFI_SCAN_FAILED){error("扫描启动失败，请重试",503);return;}scanning=true;}
+  JsonDocument d;d["running"]=true;jsonReply(d);
+ });
+ http.on("/api/scan",HTTP_GET,[]{
+  if(!local()){error("仅限配置热点",403);return;}
+  int count=WiFi.scanComplete();JsonDocument d;d["running"]=count==WIFI_SCAN_RUNNING;
+  if(count==WIFI_SCAN_FAILED){scanning=false;error("扫描失败，请重新扫描",503);return;}
+  JsonArray a=d["networks"].to<JsonArray>();
+  for(int i=0;i<count&&a.size()<40;i++){String ssid=WiFi.SSID(i);if(!ssid.length())continue;bool duplicate=false;for(JsonObject n:a)if(n["ssid"]==ssid)duplicate=true;if(duplicate)continue;JsonObject n=a.add<JsonObject>();n["ssid"]=ssid;n["rssi"]=WiFi.RSSI(i);n["open"]=WiFi.encryptionType(i)==WIFI_AUTH_OPEN;}
+  jsonReply(d);if(count>=0)scanning=false;
+ });
+ http.on("/api/wifi",HTTP_POST,[]{
+  if(!mutation())return;
+  if(scanning&&WiFi.scanComplete()==WIFI_SCAN_RUNNING){error("扫描尚未结束，请稍候",409);return;}
+  JsonDocument patch,next;if(http.arg("plain").length()>512||deserializeJson(patch,http.arg("plain"))||!patch["ssid"].is<String>()||!patch["password"].is<String>()){error("Wi-Fi 参数无效");return;}
+  next.set(cfg);next["ssid"]=patch["ssid"];next["wifi_password"]=patch["password"];
+  String why=validate(next,false);if(why.length()){error(why);return;}
+  String saved;serializeJson(next,saved);if(nv.putString("config",saved)!=saved.length()){error("保存失败",500);return;}
+  cfg.set(next);wifiBeginAt=millis()+500;
+  JsonDocument d;d["message"]="已保存，正在连接；请保持连接网关热点查看结果";jsonReply(d);
+ });
  http.on("/api/config",HTTP_POST,[]{
   if(!mutation())return;
   JsonDocument patch,next;if(http.arg("plain").length()>6500||deserializeJson(patch,http.arg("plain"))||!patch.is<JsonObject>()){error("配置JSON无效或过大");return;}
@@ -149,22 +178,26 @@ void readUART(){
 }
 void setup(){
  Serial.begin(115200);pinMode(0,INPUT_PULLUP);nv.begin("unigw",false);bootId=randomHex();defaults();
- String saved=nv.getString("config","");if(saved.length()){JsonDocument d;if(!deserializeJson(d,saved)&&validate(d).isEmpty())cfg.set(d);}
+ String saved=nv.getString("config","");if(saved.length()){JsonDocument d;if(!deserializeJson(d,saved)&&validate(d,false).isEmpty())cfg.set(d);}
  apPassword=nv.getString("ap_pass","");if(apPassword.length()<12){apPassword=randomHex()+"Gw";nv.putString("ap_pass",apPassword);}
  apName="Gateway-Setup-"+String(uint32_t(ESP.getEfuseMac()),HEX);Serial.println("AP: "+apName+" password: "+apPassword);
  uart.setRxBufferSize(4096);uart.setTxBufferSize(1024);
  String fmt=cfg["format"]|"8N1";uint32_t format=fmt=="8E1"?SERIAL_8E1:fmt=="8O1"?SERIAL_8O1:fmt=="8N2"?SERIAL_8N2:SERIAL_8N1;
  uart.begin(cfg["baud"]|9600,format,cfg["rx"]|18,cfg["tx"]|17);
- WiFi.mode(WIFI_STA);WiFi.setAutoReconnect(true);
- String ssid=cfg["ssid"]|"";if(ssid.length())WiFi.begin(ssid.c_str(),cfg["wifi_password"]|"");else startAP();
+ WiFi.mode(WIFI_STA);WiFi.setAutoReconnect(false);
+ String ssid=cfg["ssid"]|"";if(ssid.length()){WiFi.begin(ssid.c_str(),cfg["wifi_password"]|"");wifiStartAt=millis();}else startAP();
  configTime(0,0,cfg["ntp"]|"pool.ntp.org","time.cloudflare.com","ntp.aliyun.com");
  setupPortal();ws.onEvent(onWS);ws.setReconnectInterval(5000);ws.enableHeartbeat(15000,3000,2);logEvent((cfg["remote_write"]|false)?"通用网关启动，远程写入已开启":"通用网关启动，只读模式");
 }
 void loop(){
  readUART();http.handleClient();
+ if(wifiBeginAt&&int32_t(millis()-wifiBeginAt)>=0){
+  wifiBeginAt=0;ws.disconnect();started=false;online=false;WiFi.disconnect(false,false);WiFi.scanDelete();scanning=false;
+  WiFi.begin(cfg["ssid"].as<const char*>(),cfg["wifi_password"].as<const char*>());wifiStartAt=lastRetry=millis();logEvent("正在连接已配置 Wi-Fi");
+ }
  if(rebootAt&&int32_t(millis()-rebootAt)>=0)ESP.restart();
  if(digitalRead(0)==LOW){if(!hold)hold=millis();if(uint32_t(millis()-hold)>3000)startAP();}else hold=0;
- if(WiFi.status()!=WL_CONNECTED){if(millis()>45000)startAP();if(millis()-lastRetry>15000){lastRetry=millis();WiFi.reconnect();}}
+ if(WiFi.status()!=WL_CONNECTED){if(millis()>45000)startAP();if(!ap&&!scanning&&String(cfg["ssid"]|"").length()&&millis()-lastRetry>30000){lastRetry=millis();WiFi.reconnect();}}
  bool ready=WiFi.status()==WL_CONNECTED&&time(nullptr)>1700000000&&String(cfg["host"]|"").length();
  if(ready&&!started){
   auth=String("Authorization: Bearer ")+String(cfg["token"]|"")+"\r\nX-Device-Id: "+String(cfg["device_id"]|"");
