@@ -226,3 +226,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -InstallDependencies
 升级：已有相同分区的 ESP32-S3 N16R8 可仅写 `0x10000` 应用固件以保留 NVS 配置；首次安装使用完整发布包 flash.cmd。全量烧录可能清空配置，请保管自己的配对文件和热点密码。
 
 验证范围：1.3.2 编译及 COM5 写入哈希校验通过；两种配对格式与无效文件拒绝测试通过；用户确认更换浏览器后可访问。真实文件导入、保存与重连仍需按步骤验收，不将模拟测试当成实机验证。
+
+### 配套 PPT 与手册
+
+在 [v1.6.1 Releases](https://github.com/roxy-king/esp32-universal-gateway/releases/tag/v1.6.1) 下载 `ESP32-Gateway-Tutorial-v1.6.1.zip`，包含更新的59页PPT、详细Word手册、网关固件与操作说明。用户原稿保留，本次PPT仅更新5页。
