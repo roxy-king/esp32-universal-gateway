@@ -107,11 +107,12 @@ bool mutation(){if(!local()||http.header("X-Gateway-Nonce")!=nonce){error("请�
 void startAP(){
  if(ap)return;
  WiFi.mode(WIFI_AP_STA);
+ WiFi.setSleep(false);
  ap=WiFi.softAP(apName.c_str(),apPassword.c_str());
  if(ap){nonce=randomHex();logEvent("配置热点已开启 "+apName);Serial.println("AP password: "+apPassword);}
 }
 void status(JsonDocument& d){
- d["firmware"]="UniversalGateway 1.3.0";d["device_id"]=cfg["device_id"];d["boot_id"]=bootId;
+ d["firmware"]="UniversalGateway 1.3.2";d["device_id"]=cfg["device_id"];d["boot_id"]=bootId;
  // Public connection settings only. Never send passwords, tokens or CA contents.
  for(const char* key:{"name","baud","rx","tx","format","ending","host","port","path","tls"})d[key]=cfg[key];
  d["wifi"]=WiFi.status()==WL_CONNECTED;d["ip"]=WiFi.localIP().toString();d["rssi"]=WiFi.status()==WL_CONNECTED?WiFi.RSSI():0;
@@ -127,7 +128,7 @@ void status(JsonDocument& d){
 }
 void setupPortal(){
  const char* headers[]={"X-Gateway-Nonce"};http.collectHeaders(headers,1);
- http.on("/",HTTP_GET,[]{if(!local()){error("管理面板仅限设备热点",403);return;}http.sendHeader("Cache-Control","no-store");http.send_P(200,"text/html; charset=utf-8",PORTAL);});
+ http.on("/",HTTP_GET,[]{if(!local()){error("管理面板仅限设备热点",403);return;}http.sendHeader("Cache-Control","no-store");Serial.println("HTTP portal GET");http.send_P(200,"text/html; charset=utf-8",PORTAL);Serial.println("HTTP portal sent");});
  http.on("/api/config",HTTP_GET,[]{if(!local()){error("仅限配置热点",403);return;}JsonDocument d;d.set(cfg);d.remove("wifi_password");d.remove("token");d["token_set"]=String(cfg["token"]|"").length()>0;d["nonce"]=nonce;jsonReply(d);});
  http.on("/api/status",HTTP_GET,[]{if(!local()){error("仅限配置热点",403);return;}JsonDocument d;status(d);JsonArray a=d["logs"].to<JsonArray>();for(unsigned i=logAt>24?logAt-24:0;i<logAt;i++)a.add(logs[i%24]);jsonReply(d);});
  http.on("/api/scan",HTTP_POST,[]{
@@ -270,6 +271,8 @@ void setup(){
  setupPortal();ws.onEvent(onWS);ws.setReconnectInterval(5000);ws.enableHeartbeat(15000,3000,2);logEvent((cfg["remote_write"]|false)?"通用网关启动，远程写入已开启":"通用网关启动，只读模式");
 }
 void loop(){
+ static uint32_t diagAt=0;
+ if(millis()-diagAt>10000){diagAt=millis();Serial.printf("DIAG ap=%d clients=%u wifi=%d cloud=%d heap=%u\n",ap,WiFi.softAPgetStationNum(),int(WiFi.status()),online,ESP.getFreeHeap());}
  readUART();http.handleClient();
  if(apRestartAt&&int32_t(millis()-apRestartAt)>=0){apRestartAt=0;WiFi.softAPdisconnect(false);ap=false;startAP();logEvent("配置热点密码已更新");}
  if(wifiBeginAt&&int32_t(millis()-wifiBeginAt)>=0){
@@ -285,7 +288,7 @@ void loop(){
  if(scanning&&(WiFi.scanComplete()!=WIFI_SCAN_RUNNING||millis()-scanAt>20000)){scanning=false;lastRetry=millis();}
  if(!wifiNow){
   if(!offlineAt)offlineAt=millis();if(millis()-offlineAt>45000)startAP();
-  if(!scanning&&!wifiBeginAt&&(!pauseRetryAt||millis()-pauseRetryAt>30000)&&String(cfg["ssid"]|"").length()&&millis()-lastRetry>=retryDelay){
+  if(!(ap&&WiFi.softAPgetStationNum()>0)&&!scanning&&!wifiBeginAt&&(!pauseRetryAt||millis()-pauseRetryAt>30000)&&String(cfg["ssid"]|"").length()&&millis()-lastRetry>=retryDelay){
    lastRetry=wifiStartAt=millis();WiFi.disconnect(false,false);WiFi.begin(cfg["ssid"].as<const char*>(),cfg["wifi_password"].as<const char*>());retryDelay=min(uint32_t(60000),retryDelay*2);logEvent("正在重试 Wi-Fi，配置热点保持可用");
   }
  }

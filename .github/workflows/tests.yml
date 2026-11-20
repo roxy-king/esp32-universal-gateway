@@ -20,3 +20,7 @@ jobs:
       - run: bash -n install.sh deploy/install.sh && bash install.sh --check
       - run: ./tests/test_ap_info.ps1
         shell: pwsh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tests/test_pairing_import.cjs

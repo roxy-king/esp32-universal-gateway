@@ -6,11 +6,11 @@
 以 **root** 登录Debian/Ubuntu服务器，复制整行：
 
 ```bash
-bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.6.0/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
+bash -c 'f=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/roxy-king/esp32-universal-gateway/v1.6.1/install.sh -o "$f" && bash "$f"; r=$?; test -z "$f" || rm -f -- "$f"; exit "$r"'
 ```
 
 若提示curl不存在，先运行 `apt-get update && apt-get install -y curl ca-certificates`。
-向导会下载固定v1.6.0源码，安装服务、配置HTTPS并生成ESP配对文件。请先完成独立域名DNS解析，并开放80/443端口。
+向导会下载固定v1.6.1源码，安装服务、配置HTTPS并生成ESP配对文件。请先完成独立域名DNS解析，并开放80/443端口。
 完成后把 `/etc/esp-gateway/pairing.json` 下载到电脑的 `private/pairing.json`，连接ESP热点并运行 `connect.cmd`；服务器不能替你连接本地设备热点。
 
 也可以从仓库的 **Releases** 下载完整包，使用Windows向导：
@@ -207,3 +207,22 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -InstallDependencies
 - 页面每秒读取一次状态；ESP 每5秒上报心跳，服务端超过20秒无上报视为状态过期。二者不是同一个刷新周期。
 
 验证：29项服务端/部署测试通过；真实浏览器验证设置保存、发送与模拟回复、掉线/恢复、关闭提醒、云端不可达与三种屏宽。固件 1.3.0 在 ESP32-S3 N16R8 编译通过。现有设备升级请仅写应用分区 0x10000；全量 flash.cmd 会重写整片镜像，升级前务必备份配置。
+
+## v1.6.1：配对文件导入（ESP 固件 1.3.2）
+
+完整项目发布版本 v1.6.1 与设备诊断中的固件版本 1.3.2 是两套版本号。
+
+1. 通用网关服务器生成 `/etc/esp-gateway/pairing.json`；项目服务使用 `/etc/link-project-项目ID/pairing.json`。在自己的电脑终端执行 `scp root@服务器IP:/etc/esp-gateway/pairing.json .` 下载；自定义 SSH 端口加 `-P 端口`。文件含设备令牌，不要公开。
+2. 将文件下载到手机；连接 Gateway-Setup 热点，打开 `http://192.168.4.1`，进入“服务器与串口”。
+3. 选择“导入服务器配对文件”，选中 JSON，核对主机、端口、路径及 TLS 后确认。
+4. 导入只填写表单，尚未保存。它替换 host、port、path、tls、token；保留 Wi-Fi、设备 ID、串口参数及远程写入开关。旧自定义 CA 会清空；使用自签名或其他证书链时需补填正确 CA。
+5. 检查配置并测试服务器连接，然后点击“保存并重启”。双向控制项目还要确认“远程写入”开启；串口参数须与单片机一致。
+6. 重启后确认云端在线，再按项目协议确认单片机应答；仅有串口字节不代表控制执行成功。
+
+支持 schema 为 `gateway-pairing-v1` 或数字 `1` 的配对文件，上限 16KB。格式无效不会覆盖表单；浏览器本地解析，确认预览不展示令牌。原来的手动填写方式仍可使用。
+
+热点网页打不开：确认仍连接设备热点，使用 HTTP；长按 BOOT 约4秒开启热点。手机提示无互联网时保持连接；可换浏览器验证，不能据此认定是服务器证书故障。固件 1.3.2 在有热点客户端连接时暂停失败 Wi-Fi 的周期重试，并增加不含凭据的运行日志。
+
+升级：已有相同分区的 ESP32-S3 N16R8 可仅写 `0x10000` 应用固件以保留 NVS 配置；首次安装使用完整发布包 flash.cmd。全量烧录可能清空配置，请保管自己的配对文件和热点密码。
+
+验证范围：1.3.2 编译及 COM5 写入哈希校验通过；两种配对格式与无效文件拒绝测试通过；用户确认更换浏览器后可访问。真实文件导入、保存与重连仍需按步骤验收，不将模拟测试当成实机验证。
